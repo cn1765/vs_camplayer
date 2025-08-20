@@ -1,3 +1,9 @@
 [submodule "qt"]
 	path = qt
 	url = https://github.com/qt/qt5.git
+[submodule "libevent"]
+	path = libevent
+	url = https://github.com/libevent/libevent.git
+[submodule "opencv"]
+	path = opencv
+	url = https://github.com/opencv/opencv.git

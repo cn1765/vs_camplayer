@@ -1,16 +1,16 @@
 #!/bin/bash
 
-# build_qt.sh - Build script for Qt6 submodule
+# build_src.sh - Build script for Libevent submodule
 
 set -e  # Exit on any error
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
-QT_SOURCE_DIR="$PROJECT_ROOT/qt"
+LIBEVENT_SOURCE_DIR="$PROJECT_ROOT/libevent"
 OUT_DIR="$PROJECT_ROOT/out"
-BUILD_DIR="$OUT_DIR/build/qt"
-INSTALL_DIR="$OUT_DIR/install/qt"
+BUILD_DIR="$OUT_DIR/build/libevent"
+INSTALL_DIR="$OUT_DIR/install/libevent"
 LOG_DIR="$BUILD_DIR/log"
 
 # Build configuration
@@ -57,14 +57,10 @@ format_time() {
     printf '%02d:%02d:%02d' $((duration/3600)) $((duration%3600/60)) $((duration%60))
 }
 
-# Check if Qt source exists
-check_qt_source() {
-    if [ ! -d "$QT_SOURCE_DIR" ]; then
-        error "Qt source directory not found at $QT_SOURCE_DIR"
-    fi
-    
-    if [ ! -f "$QT_SOURCE_DIR/configure" ]; then
-        error "Qt configure script not found in $QT_SOURCE_DIR"
+# Check if Libevent source exists
+check_src_source() {
+    if [ ! -d "$LIBEVENT_SOURCE_DIR" ]; then
+        error "Libevent source directory not found at $LIBEVENT_SOURCE_DIR"
     fi
 }
 
@@ -84,62 +80,31 @@ setup_directories() {
     fi
 
     if [ -d "$LOG_DIR" ]; then
-        log "Cleaning previous log directory..."
         rm -rf "{$LOG_DIR}/*"
     fi
-
-    if [ -d "$INSTALL_DIR" ]; then
-        log "Cleaning previous install directory..."
-        rm -rf "{$INSTALL_DIR}/*"
-    fi
 }
 
-# Initialize and update submodule
-init_submodule() {
-    log "Initializing and updating Qt submodule..."
-    
-    cd "$PROJECT_ROOT"
-    
-    if [ ! -d "$QT_SOURCE_DIR/.git" ]; then
-        log "Initializing submodule..."
-        git submodule update --init --recursive qt 2>&1 | tee -a "$LOG_DIR/build.log"
-    else
-        log "Updating submodule..."
-        git submodule update --recursive qt 2>&1 | tee -a "$LOG_DIR/build.log"
-    fi
-}
-
-# Configure Qt build
-configure_qt() {
-    log "Configuring Qt6 build..."
+# Configure Libevent build
+configure_src() {
+    log "Configuring Libevent build..."
     CONFIGURE_START_TIME=$(date +%s)
     
     cd "$BUILD_DIR"
+    
+    export CC=gcc
+    export CXX=g++
 
-    # Qt6 configure options for minimal GUI build
-    CONFIGURE_OPTS=(
-        -prefix "$INSTALL_DIR"
-        -debug
-        -opensource
-        -confirm-license
-        -nomake examples
-        -nomake tests
-        -no-dbus
-        -no-gstreamer
-        -xcb
-        -bundled-xcb-xinput
-        # 明确指定要构建的子模块
-        -submodules "qtbase,qtdeclarative,qttools,qtsvg,qtshadertools"
-        -DCMAKE_C_COMPILER=gcc
-        -DCMAKE_CXX_COMPILER=g++
-    )
+    cmake -DCMAKE_C_COMPILER=gcc \
+      -DCMAKE_CXX_COMPILER=g++ \
+      -DCMAKE_POLICY_VERSION_MINIMUM=3.21 \
+      -DEVENT__LIBRARY_TYPE=SHARED \
+      -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
+      -DEVENT__DISABLE_TESTS=ON \
+      -DEVENT__DISABLE_REGRESS=ON \
+      "$LIBEVENT_SOURCE_DIR" 2>&1 | tee -a "$LOG_DIR/configure.log"
     
-    log "Running Qt6 configure with options: ${CONFIGURE_OPTS[*]}"
-    
-    "$QT_SOURCE_DIR/configure" "${CONFIGURE_OPTS[@]}" 2>&1 | tee -a "$LOG_DIR/configure.log"
-    
-    if [ ${PIPESTATUS[0]} -ne 0 ]; then
-        error "Qt6 configure failed. Check $LOG_DIR/configure.log for details."
+    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+        error "Libevent configure failed. Check $LOG_DIR/configure.log for details."
     fi
     
     local configure_end_time=$(date +%s)
@@ -147,9 +112,9 @@ configure_qt() {
     time_log "Configure completed in $(format_time $configure_duration)"
 }
 
-# Build Qt
-build_qt() {
-    log "Building Qt6 (using $PARALLEL_JOBS parallel jobs)..."
+# Build Libevent
+build_src() {
+    log "Building Libevent (using $PARALLEL_JOBS parallel jobs)..."
     BUILD_PHASE_START_TIME=$(date +%s)
     
     cd "$BUILD_DIR"
@@ -157,7 +122,7 @@ build_qt() {
     cmake --build . --parallel $PARALLEL_JOBS 2>&1 | tee -a "$LOG_DIR/build.log"
     
     if [ ${PIPESTATUS[0]} -ne 0 ]; then
-        error "Qt6 build failed. Check $LOG_DIR/build.log for details."
+        error "Libevent build failed. Check $LOG_DIR/build.log for details."
     fi
     
     local build_end_time=$(date +%s)
@@ -165,9 +130,9 @@ build_qt() {
     time_log "Build phase completed in $(format_time $build_duration)"
 }
 
-# Install Qt
-install_qt() {
-    log "Installing Qt6 to $INSTALL_DIR..."
+# Install Libevent
+install_src() {
+    log "Installing Libevent to $INSTALL_DIR..."
     INSTALL_START_TIME=$(date +%s)
     
     cd "$BUILD_DIR"
@@ -175,7 +140,7 @@ install_qt() {
     cmake --install . 2>&1 | tee -a "$LOG_DIR/install.log"
     
     if [ ${PIPESTATUS[0]} -ne 0 ]; then
-        error "Qt6 installation failed. Check $LOG_DIR/install.log for details."
+        error "Libevent installation failed. Check $LOG_DIR/install.log for details."
     fi
     
     local install_end_time=$(date +%s)
@@ -190,13 +155,13 @@ generate_build_info() {
     INFO_FILE="$INSTALL_DIR/build_info.txt"
     
     {
-        echo "Qt6 Build Information"
+        echo "Libevent Build Information"
         echo "===================="
         echo "Build Date: $(date)"
         echo "Build Host: $(hostname)"
         echo "Build User: $(whoami)"
         echo "Parallel Jobs: $PARALLEL_JOBS"
-        echo "Source Directory: $QT_SOURCE_DIR"
+        echo "Source Directory: $LIBEVENT_SOURCE_DIR"
         echo "Build Directory: $BUILD_DIR"
         echo "Install Directory: $INSTALL_DIR"
         echo ""
@@ -209,12 +174,6 @@ generate_build_info() {
         echo "Build: $(format_time $build_duration)"
         echo "Install: $(format_time $install_duration)"
         echo "Total: $(format_time $total_duration)"
-        echo ""
-        echo "Git Information:"
-        cd "$QT_SOURCE_DIR"
-        echo "Commit: $(git rev-parse HEAD)"
-        echo "Tag: $(git describe --tags --exact-match 2>/dev/null || echo 'N/A')"
-        echo "Branch: $(git rev-parse --abbrev-ref HEAD)"
     } > "$INFO_FILE"
     
     log "Build information saved to $INFO_FILE"
@@ -225,19 +184,18 @@ main() {
     setup_directories
     BUILD_START_TIME=$(date +%s)
     
-    log "Starting Qt6 build process..."
+    log "Starting Libevent build process..."
     log "Script directory: $SCRIPT_DIR"
     log "Project root: $PROJECT_ROOT"
-    log "Qt source: $QT_SOURCE_DIR"
+    log "Libevent source: $LIBEVENT_SOURCE_DIR"
     log "Build directory: $BUILD_DIR"
     log "Install directory: $INSTALL_DIR"
     log "Parallel jobs: $PARALLEL_JOBS"
     
-    check_qt_source
-    init_submodule
-    configure_qt
-    build_qt
-    install_qt
+    check_src_source
+    configure_src
+    build_src
+    install_src
     generate_build_info
     
     # Final build time summary
@@ -249,7 +207,7 @@ main() {
     
     echo ""
     time_log "========================================="
-    time_log "Qt6 BUILD COMPLETED SUCCESSFULLY!"
+    time_log "Libevent BUILD COMPLETED SUCCESSFULLY!"
     time_log "========================================="
     time_log "Configure time: $(format_time $configure_duration)"
     time_log "Build time:     $(format_time $build_duration)"
@@ -258,7 +216,7 @@ main() {
     time_log "========================================="
     
     log "Installation directory: $INSTALL_DIR"
-    log "To use this Qt6 installation:"
+    log "To use this Libevent installation:"
     log "  export CMAKE_PREFIX_PATH=\"$INSTALL_DIR:\$CMAKE_PREFIX_PATH\""
     log "  export PATH=\"$INSTALL_DIR/bin:\$PATH\""
 }

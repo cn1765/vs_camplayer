@@ -71,12 +71,16 @@ setup_directories() {
     log "Setting up directory structure..."
     mkdir -p "$OUT_DIR"
     mkdir -p "$BUILD_DIR"
-    mkdir -p "$INSTALL_DIR" 
-    
-    # Clear previous build if exists
+    mkdir -p "$INSTALL_DIR"
+
     if [ -d "$BUILD_DIR" ]; then
         log "Cleaning previous build directory..."
         rm -rf "{$BUILD_DIR}/*"
+    fi
+    
+    if [ -d "$INSTALL_DIR" ]; then
+        log "Cleaning previous install directory..."
+        rm -rf "{$INSTALL_DIR}/*"
     fi
 
     if [ -d "$LOG_DIR" ]; then
