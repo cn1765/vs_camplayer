@@ -75,6 +75,7 @@ private:
     void processReceivedData();
     void processMessage(const QByteArray &data);
     QImage convertNV12ToRGB(const QByteArray &nv12Data, int width, int height);
+    QImage convertBayerBGGR8ToRGB(const QByteArray &bayerData, int width, int height);
     QImage addOverlayToImage(const QImage &image, int pipe, int frame, double fps);
 
     QTcpSocket *m_socket;

@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QBuffer>
 #include <QImage>
+#include <QMetaObject>
 
 #include "NetworkClient.h"
 #include "Logger.h"
@@ -108,18 +109,18 @@ void NetworkClient::onError(QAbstractSocket::SocketError error)
 
 void NetworkClient::sendStartMessage()
 {    
-    m_socket->write(reinterpret_cast<const char*>(&start_cmd_header_new_t), sizeof(start_cmd_header_new_t));
+    // m_socket->write(reinterpret_cast<const char*>(&start_cmd_header_new_t), sizeof(start_cmd_header_new_t));
 
-    m_socket->write(reinterpret_cast<const char*>(&start_transfer_info), sizeof(start_transfer_info));
+    // m_socket->write(reinterpret_cast<const char*>(&start_transfer_info), sizeof(start_transfer_info));
     
     setStatusMessage("start cmd sent");
 }
 
 void NetworkClient::sendStopMessage()
 {   
-    m_socket->write(reinterpret_cast<const char*>(&stop_cmd_header_new_t), sizeof(stop_cmd_header_new_t));
+    // m_socket->write(reinterpret_cast<const char*>(&stop_cmd_header_new_t), sizeof(stop_cmd_header_new_t));
 
-    m_socket->write(reinterpret_cast<const char*>(&stop_transfer_info), sizeof(stop_transfer_info));
+    // m_socket->write(reinterpret_cast<const char*>(&stop_transfer_info), sizeof(stop_transfer_info));
     
     setStatusMessage("stop cmd sent");
 }
@@ -136,13 +137,13 @@ void NetworkClient::processReceivedData()
             memcpy(&m_currentHeader, m_receiveBuffer.constData(), sizeof(m_currentHeader));
             m_receiveBuffer.remove(0, sizeof(m_currentHeader));
 
-            m_width = m_currentHeader.metadata.pic_i.stride;
-            m_height = m_currentHeader.metadata.pic_i.height;
-            m_pipe = m_currentHeader.packinfo.r_i.pipe_id;
+            m_width = m_currentHeader.pic_info.stride;
+            m_height = m_currentHeader.pic_info.height;
+            m_pipe = m_currentHeader.pic_info.pipe_id;
             
             // Extract frame information
-            m_currentPipe = m_currentHeader.packinfo.r_i.pipe_id;
-            m_currentFrame = m_currentHeader.packinfo.r_i.frame_id;
+            m_currentPipe = m_currentHeader.pic_info.pipe_id;
+            m_currentFrame = m_currentHeader.pic_info.frame_id;
             
             // Initialize pipe data if new pipe
             if (!m_pipeData.contains(m_currentPipe)) {
@@ -193,7 +194,17 @@ void NetworkClient::processReceivedData()
                            .arg(QString::number(m_currentFps, 'f', 1)));
 
             m_receiveState = WAITING_FOR_BODY;
-            m_expectedBodyLength = m_width*m_height*3/2;
+
+            if (m_currentHeader.pic_info.format == PIX_FMT_SBGGR8) {
+                // RAW8
+                m_expectedBodyLength = m_width * m_height;
+            } else if (m_currentHeader.pic_info.format == PIX_FMT_RGB565) {
+                // RGB565
+                m_expectedBodyLength = m_width * m_height * 2;
+            } else if (m_currentHeader.pic_info.format == PIX_FMT_NV12) {
+                // NV12
+                m_expectedBodyLength = m_width * m_height * 3 / 2;
+            }
             
         } else if (m_receiveState == WAITING_FOR_BODY) {
             if (m_receiveBuffer.size() < static_cast<int>(m_expectedBodyLength)) {
@@ -228,7 +239,22 @@ void NetworkClient::processMessage(const QByteArray &data)
         // Convert NV12 data to RGB image and display
         if (m_width > 0 && m_height > 0) {
             LOG_DEBUG("Width and height are valid, calling convertNV12ToRGB");
-            QImage rgbImage = convertNV12ToRGB(data, m_width, m_height);
+
+            QImage rgbImage;
+            if (m_currentHeader.pic_info.format == PIX_FMT_SBGGR8) {
+                // RAW8
+                rgbImage = convertBayerBGGR8ToRGB(data, m_width, m_height);
+            } else if (m_currentHeader.pic_info.format == PIX_FMT_RGB565) {
+                // RGB565
+                QByteArray bgr565Data = data;
+                rgbImage = QImage((const uchar*)bgr565Data.constData(), m_width, m_height, QImage::Format_RGB16);
+                rgbImage = rgbImage.copy();
+                rgbImage = rgbImage.rgbSwapped();
+            } else {
+                // NV12
+                rgbImage = convertNV12ToRGB(data, m_width, m_height);
+            }
+
             LOG_DEBUG("Conversion result - isNull:" << rgbImage.isNull() 
                      << "size:" << rgbImage.size() << "format:" << rgbImage.format());
             
@@ -347,6 +373,47 @@ QImage NetworkClient::convertNV12ToRGB(const QByteArray &nv12Data, int width, in
     } catch (const cv::Exception& e) {
         LOG_DEBUG("OpenCV error:" << e.what());
         LOG_DEBUG("=== convertNV12ToRGB END (ERROR) ===");
+        return QImage();
+    }
+}
+
+QImage NetworkClient::convertBayerBGGR8ToRGB(const QByteArray &bayerData, int width, int height)
+{
+    LOG_DEBUG("=== convertBayerBGGR8ToRGB START ===");
+    LOG_DEBUG("Input - width:" << width << "height:" << height);
+    LOG_DEBUG("Data size:" << bayerData.size() << "Expected:" << (width * height));
+
+    if (bayerData.size() < width * height) {
+        LOG_DEBUG("Bayer BGGR8 data size insufficient - got:" << bayerData.size() << "needed:" << (width * height));
+        return QImage();
+    }
+
+    try {
+        LOG_DEBUG("Creating OpenCV Mat from Bayer BGGR8 data");
+        // Create OpenCV Mat from Bayer BGGR8 data
+        cv::Mat bayerMat(height, width, CV_8UC1, (void*)bayerData.constData());
+        LOG_DEBUG("Bayer Mat created - size:" << bayerMat.cols << "x" << bayerMat.rows << "channels:" << bayerMat.channels());
+
+        cv::Mat rgbMat;
+        LOG_DEBUG("Converting Bayer BGGR8 to RGB using OpenCV");
+
+        // Convert Bayer BGGR8 to RGB
+        cv::cvtColor(bayerMat, rgbMat, cv::COLOR_BayerBG2BGR);
+        LOG_DEBUG("RGB Mat created - size:" << rgbMat.cols << "x" << rgbMat.rows << "channels:" << rgbMat.channels());
+
+        // Convert OpenCV Mat to QImage
+        LOG_DEBUG("Converting OpenCV Mat to QImage");
+        QImage qimg(rgbMat.data, rgbMat.cols, rgbMat.rows, rgbMat.step, QImage::Format_RGB888);
+        LOG_DEBUG("QImage created - size:" << qimg.size() << "isNull:" << qimg.isNull());
+
+        QImage result = qimg.copy(); // Make a deep copy
+        LOG_DEBUG("Deep copy made - size:" << result.size() << "isNull:" << result.isNull());
+        LOG_DEBUG("=== convertBayerBGGR8ToRGB END ===");
+        return result;
+
+    } catch (const cv::Exception& e) {
+        LOG_DEBUG("OpenCV error:" << e.what());
+        LOG_DEBUG("=== convertBayerBGGR8ToRGB END (ERROR) ===");
         return QImage();
     }
 }

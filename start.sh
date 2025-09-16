@@ -1,5 +1,8 @@
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/cn1767/work/vs_camplayer/out/install/qt/lib:/home/cn1767/work/vs_camplayer/out/install/opencv/lib
-export QT_PLUGIN_PATH=/home/cn1767/work/vs_camplayer/out/install/qt/plugins
+#!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-./out/install/app/bin/MainApp
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$SCRIPT_DIR/out/install/qt/lib:$SCRIPT_DIR/out/install/opencv/lib
+export QT_PLUGIN_PATH=$SCRIPT_DIR/out/install/qt/plugins
+
+$SCRIPT_DIR/out/install/app/bin/MainApp
